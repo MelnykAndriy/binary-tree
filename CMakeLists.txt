@@ -3,5 +3,15 @@ project(binary_tree)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
-set(SOURCE_FILES main.cpp tree-vizualization/TreeGraph.h tree-vizualization/TreeGraphBuilder.h)
-add_executable(binary_tree ${SOURCE_FILES} Tree.h)
+set(SOURCE_FILES main.cpp)
+
+add_executable(binary_tree ${SOURCE_FILES})
+
+include_directories(containers)
+include_directories(vizualization)
+
+add_subdirectory(containers)
+add_subdirectory(tests)
+add_subdirectory(vizualization)
+
+#target_link_libraries(binary_tree containers vizualization)

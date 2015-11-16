@@ -12,7 +12,7 @@
 #include <sstream>
 
 #include "TreeGraph.h"
-#include "../Tree.h"
+#include "Tree.h"
 
 class TreeGraphBuilder {
 public:
