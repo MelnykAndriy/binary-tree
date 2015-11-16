@@ -14,18 +14,22 @@ public:
     typedef std::function<void(Element &)> ElementsTraverseFunc;
     typedef std::function<bool(const Element &)> ElementPredicate;
 
+    friend class TreeGraphBuilder;
+
 #define NEGATIVE_PREDICATE [](const Element &) -> bool { return false; }
 
     Tree() : number_of_elements(0), root(nullptr) { }
     void insert(const Element &el);
     bool isMember(const Element &el) const;
-    int removeAll(const Element &el);
-    int removeAll(ElementPredicate);
-    bool removeFirst(const Element &el);
-    bool removeLast(const Element &el);
+    unsigned int removeAll(const Element &el);
+    unsigned int removeAll(ElementPredicate);
+    unsigned int remove(const Element &el, unsigned int count = 1);
     int countElements(const Element &el) const;
     int size() const {
         return number_of_elements;
+    }
+    void clear() {
+        root = nullptr;
     }
 
     Tree makeElementsSubtree(ElementPredicate filterFunc) const;
@@ -54,10 +58,16 @@ private:
         });
     }
 
-    NodePtr findParentForNodeInsertion(const Element &) const;
+    void insertNode(NodePtr parent_node, NodePtr node_to_insert);
+
+    NodePtr findParentForNodeInsertion(const NodePtr& starting_node, const NodePtr& node_for_insertion) const;
     NodePtr findElement(ElementPredicate);
     NodePtr findElement(const Element &value) const;
     NodePtr iterStepByValue(const Element &node_value, NodePtr current_iter_pos) const;
+
+    void removeNode(NodePtr node_to_remove, NodePtr parent_node);
+    void traverseWithParent(NodePtr& iter,
+                            std::function<void(NodePtr&, NodePtr&)>);
 
     void preLeftNodesTraverse(NodesTraverseFunc, ElementPredicate=NEGATIVE_PREDICATE) const;
     void postLeftNodesTraverse(NodesTraverseFunc, ElementPredicate=NEGATIVE_PREDICATE) const;
@@ -81,7 +91,7 @@ private:
             return evaluated || (evaluated = predicate(el));
         }
 
-        bool isAlreadyStoped() {
+        bool isAlreadyStopped() {
             return  evaluated;
         }
     private:
@@ -89,14 +99,10 @@ private:
         bool evaluated;
     };
 
-
     class Node {
     public:
-        Node(Element el) : left(nullptr), right(nullptr), el(el) { }
-
-        operator Element &() {
-            return el;
-        }
+        Node() : left(nullptr), right(nullptr) {}
+        Node(NodePtr left, NodePtr right) : left(left), right(right) {}
 
         // set right child to provided Node
         void operator>>(NodePtr new_right) {
@@ -108,45 +114,75 @@ private:
             left = new_left;
         }
 
-        NodePtr getLeft() const {
+        NodePtr& getLeft() {
             return left;
         }
 
-        NodePtr getRight() const {
+        NodePtr& getRight() {
             return right;
         }
 
-    private:
+        virtual operator Element &() {
+            throw "Trying to get element of base node.";
+        }
 
+    private:
         NodePtr left;
         NodePtr right;
+    };
+
+    class ElementNode : public Node {
+    public:
+        ElementNode(Element el) : Node(), el(el) { }
+        ElementNode(Element el, NodePtr left, NodePtr right) : Node(left, right), el(el) {}
+
+        virtual operator Element &() {
+            return el;
+        }
+    private:
         Element el;
     };
 
     int number_of_elements;
     NodePtr root;
+
+    void removeRoot();
 };
 
 template<typename Element>
 void Tree<Element>::insert(const Element &element_to_insert) {
-    NodePtr inserted_node(new Node(element_to_insert));
+    NodePtr inserted_node(new ElementNode(element_to_insert));
     if (root != nullptr) {
-        auto insert_node = findParentForNodeInsertion(element_to_insert);
-        if (element_to_insert > *insert_node) {
-            *insert_node >> inserted_node;
-        } else {
-            *insert_node << inserted_node;
-        }
+        insertNode(root, inserted_node);
     } else {
-        root = NodePtr(new Node(element_to_insert));
+        root = inserted_node;
     }
     number_of_elements++;
 }
 
+template<typename Element>
+void Tree<Element>::insertNode(NodePtr parent_node, NodePtr node_to_insert) {
+    if ( node_to_insert != nullptr ) {
+        auto insert_node = findParentForNodeInsertion(parent_node, node_to_insert);
+        if (*node_to_insert > *insert_node) {
+            *insert_node >> node_to_insert;
+        } else {
+            *insert_node << node_to_insert;
+        }
+    }
+}
 
 template<typename Element>
 typename Tree<Element>::NodePtr Tree<Element>::findElement(ElementPredicate test_func) {
-    return NodePtr();
+    NodePtr found;
+    preLeftNodesTraverse([&](NodePtr& node) {
+        if ( test_func(*node) ) {
+            found = node;
+        }
+    }, [&](NodePtr& node) {
+        return found != nullptr;
+    });
+    return found;
 }
 
 template<typename Element>
@@ -159,12 +195,15 @@ typename Tree<Element>::NodePtr Tree<Element>::findElement(const Element &value)
 }
 
 template<typename Element>
-typename Tree<Element>::NodePtr Tree<Element>::findParentForNodeInsertion(const Element &node_value) const {
-    auto tree_iterator = root;
+typename Tree<Element>::NodePtr Tree<Element>::findParentForNodeInsertion(
+        const NodePtr& starting_node,
+        const NodePtr& node_for_insertion
+) const {
+    auto tree_iterator = starting_node;
     NodePtr prevParent = nullptr;
     while (tree_iterator != nullptr) {
         prevParent = tree_iterator;
-        tree_iterator = iterStepByValue(node_value, tree_iterator);
+        tree_iterator = iterStepByValue(*node_for_insertion, tree_iterator);
     }
     return prevParent;
 }
@@ -184,24 +223,45 @@ bool Tree<Element>::isMember(const Element &el) const {
 }
 
 template<typename Element>
-int Tree<Element>::removeAll(ElementPredicate func) {
-    return 0; // TODO
+unsigned int Tree<Element>::removeAll(ElementPredicate func) {
+    unsigned int removed = 0;
+    NodePtr imaginary_root(new Node(nullptr, root));
+    traverseWithParent(imaginary_root, [&](NodePtr& p, NodePtr& c) {
+        if ( func(*c) ) {
+            removeNode(c, p);
+            removed++;
+        }
+    });
+    root = imaginary_root->getRight();
+    return removed;
 }
 
 template<typename Element>
-int Tree<Element>::removeAll(const Element &el_to_remove) {
+void Tree<Element>::traverseWithParent(NodePtr& iter,
+                                       std::function<void(NodePtr&, NodePtr&)> func) {
+    if ( iter ) {
+        if ( iter->getLeft() ) {
+            func(iter, iter->getLeft());
+            traverseWithParent(iter->getLeft(), func);
+        }
+        if ( iter->getRight() ) {
+            func(iter, iter->getRight());
+            traverseWithParent(iter->getRight(), func);
+        }
+    }
+}
+
+template<typename Element>
+unsigned int Tree<Element>::removeAll(const Element &el_to_remove) {
     return removeAll([&](const Element &test_el) -> bool {
         return el_to_remove == test_el;
     });
 }
 
 template<typename Element>
-bool Tree<Element>::removeFirst(const Element &el) {
-    return false;
-}
+unsigned int Tree<Element>::remove(const Element &el, unsigned int count) {
 
-template<typename Element>
-bool Tree<Element>::removeLast(const Element &el) {
+
     return false;
 }
 
@@ -307,7 +367,7 @@ void Tree<Element>::postLeftTraverseInner(NodePtr currentNode,
                                           NodesTraverseFunc func,
                                           ConditionWrapper& stopCondition) const {
     if (currentNode != nullptr) {
-        if ( !stopCondition.isAlreadyStoped() ) {
+        if ( !stopCondition.isAlreadyStopped() ) {
             postLeftTraverseInner(currentNode->getLeft(), func, stopCondition);
             postLeftTraverseInner(currentNode->getRight(), func, stopCondition);
             stopCondition(*currentNode);
@@ -334,7 +394,7 @@ void Tree<Element>::postRightTraverseInner(NodePtr currentNode,
                                            NodesTraverseFunc func,
                                            ConditionWrapper& stopCondition) const {
     if (currentNode != nullptr) {
-        if ( !stopCondition.isAlreadyStoped() ) {
+        if ( !stopCondition.isAlreadyStopped() ) {
             postRightTraverseInner(currentNode->getRight(), func, stopCondition);
             postRightTraverseInner(currentNode->getLeft(), func, stopCondition);
             stopCondition(*currentNode);
@@ -388,7 +448,7 @@ void Tree<Element>::inOrderTraverseInner(
         ConditionWrapper& stopCondition
 ) const {
     if (currentNode != nullptr) {
-        if ( !stopCondition.isAlreadyStoped() ) {
+        if ( !stopCondition.isAlreadyStopped() ) {
             inOrderTraverseInner(currentNode->getLeft(), func, stopCondition);
         }
         func(currentNode);
@@ -405,13 +465,37 @@ void Tree<Element>::inOppositeOrderTraverseInner(
         ConditionWrapper& stopCondition
 ) const {
     if (currentNode != nullptr) {
-        if ( !stopCondition.isAlreadyStoped() ) {
+        if ( !stopCondition.isAlreadyStopped() ) {
             inOppositeOrderTraverseInner(currentNode->getRight(), func, stopCondition);
         }
         func(currentNode);
         if ( !stopCondition(*currentNode) ) {
             inOppositeOrderTraverseInner(currentNode->getLeft(), func, stopCondition);
         }
+    }
+}
+
+template<typename Element>
+void Tree<Element>::removeNode(NodePtr node_to_remove, NodePtr parent_node) {
+    if ( parent_node == nullptr ) {
+        removeRoot();
+    }
+    if ( node_to_remove == parent_node->getRight()) {
+        *parent_node >> node_to_remove->getRight();
+        insertNode(parent_node->getRight(), node_to_remove->getLeft());
+    } else {
+        *parent_node << node_to_remove->getLeft();
+        insertNode(parent_node->getLeft(), node_to_remove->getLeft());
+    }
+}
+
+template<typename Element>
+void Tree<Element>::removeRoot() {
+    if ( root->getRight() == nullptr ) {
+        root = root->getLeft();
+    } else {
+        insertNode(root, root->getLeft());
+        root = root->getRight();
     }
 }
 
