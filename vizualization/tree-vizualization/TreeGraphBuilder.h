@@ -55,9 +55,9 @@ private:
 };
 
 template<typename TreeElement>
-std::string TreeGraphBuilder::convertNodeToString(const typename  Tree<TreeElement>::NodePtr& node) {
+std::string TreeGraphBuilder::convertNodeToString(const typename Tree<TreeElement>::NodePtr& node) {
     std::ostringstream o;
-    o << *node;
+    o << node->getValue();
     return o.str();
 }
 

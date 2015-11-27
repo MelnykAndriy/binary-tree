@@ -24,11 +24,13 @@ public:
     unsigned int removeAll(const Element &el);
     unsigned int removeAll(ElementPredicate);
     unsigned int remove(const Element &el, unsigned int count = 1);
-    int countElements(const Element &el) const;
-    int size() const {
+    unsigned int countElements(const Element &el) const;
+    unsigned int countElements(ElementPredicate) const;
+    unsigned int size() const {
         return number_of_elements;
     }
     void clear() {
+        number_of_elements = 0;
         root = nullptr;
     }
 
@@ -43,7 +45,6 @@ public:
     void inOrderTraverse(ElementsTraverseFunc, ElementPredicate=NEGATIVE_PREDICATE) const;
     void inOppositeOrderTraverse(ElementsTraverseFunc, ElementPredicate=NEGATIVE_PREDICATE) const;
 
-
 private:
 
     class Node;
@@ -53,7 +54,7 @@ private:
     typedef std::function<void(NodePtr &)> NodesTraverseFunc;
 
     Tree(NodePtr root) : root(root), number_of_elements(0) {
-        inOrderNodesTraverse([&](Element &el) {
+        inOrderNodesTraverse([&](const NodePtr &node) {
             number_of_elements++;
         });
     }
@@ -61,10 +62,13 @@ private:
     void insertNode(NodePtr parent_node, NodePtr node_to_insert);
 
     NodePtr findParentForNodeInsertion(const NodePtr& starting_node, const NodePtr& node_for_insertion) const;
-    NodePtr findElement(ElementPredicate);
+    NodePtr findElement(ElementPredicate) const;
     NodePtr findElement(const Element &value) const;
     NodePtr iterStepByValue(const Element &node_value, NodePtr current_iter_pos) const;
 
+    void removeRoot();
+    void removeRightNode(NodePtr node_to_remove, NodePtr parent_node);
+    void removeLeftNode(NodePtr node_to_remove, NodePtr parent_node);
     void removeNode(NodePtr node_to_remove, NodePtr parent_node);
     void traverseWithParent(NodePtr& iter,
                             std::function<void(NodePtr&, NodePtr&)>);
@@ -122,8 +126,8 @@ private:
             return right;
         }
 
-        virtual operator Element &() {
-            throw "Trying to get element of base node.";
+        virtual Element& getValue() {
+            throw std::string("Trying to get element of base node.");
         }
 
     private:
@@ -136,17 +140,16 @@ private:
         ElementNode(Element el) : Node(), el(el) { }
         ElementNode(Element el, NodePtr left, NodePtr right) : Node(left, right), el(el) {}
 
-        virtual operator Element &() {
+        virtual Element& getValue() {
             return el;
         }
+
     private:
         Element el;
     };
 
-    int number_of_elements;
+    unsigned int number_of_elements;
     NodePtr root;
-
-    void removeRoot();
 };
 
 template<typename Element>
@@ -164,7 +167,7 @@ template<typename Element>
 void Tree<Element>::insertNode(NodePtr parent_node, NodePtr node_to_insert) {
     if ( node_to_insert != nullptr ) {
         auto insert_node = findParentForNodeInsertion(parent_node, node_to_insert);
-        if (*node_to_insert > *insert_node) {
+        if (node_to_insert->getValue() > insert_node->getValue()) {
             *insert_node >> node_to_insert;
         } else {
             *insert_node << node_to_insert;
@@ -173,13 +176,13 @@ void Tree<Element>::insertNode(NodePtr parent_node, NodePtr node_to_insert) {
 }
 
 template<typename Element>
-typename Tree<Element>::NodePtr Tree<Element>::findElement(ElementPredicate test_func) {
+typename Tree<Element>::NodePtr Tree<Element>::findElement(ElementPredicate test_func) const {
     NodePtr found;
     preLeftNodesTraverse([&](NodePtr& node) {
-        if ( test_func(*node) ) {
+        if ( test_func(node->getValue()) ) {
             found = node;
         }
-    }, [&](NodePtr& node) {
+    }, [&](const Element& el) {
         return found != nullptr;
     });
     return found;
@@ -188,7 +191,7 @@ typename Tree<Element>::NodePtr Tree<Element>::findElement(ElementPredicate test
 template<typename Element>
 typename Tree<Element>::NodePtr Tree<Element>::findElement(const Element &value) const {
     auto iter = root;
-    while (iter != nullptr && *iter != value) {
+    while (iter != nullptr && iter->getValue() != value) {
         iter = iterStepByValue(value, iter);
     }
     return iter;
@@ -203,7 +206,7 @@ typename Tree<Element>::NodePtr Tree<Element>::findParentForNodeInsertion(
     NodePtr prevParent = nullptr;
     while (tree_iterator != nullptr) {
         prevParent = tree_iterator;
-        tree_iterator = iterStepByValue(*node_for_insertion, tree_iterator);
+        tree_iterator = iterStepByValue(node_for_insertion->getValue(), tree_iterator);
     }
     return prevParent;
 }
@@ -211,7 +214,7 @@ typename Tree<Element>::NodePtr Tree<Element>::findParentForNodeInsertion(
 template<typename Element>
 typename Tree<Element>::NodePtr Tree<Element>::iterStepByValue(const Element &node_value,
                                                                NodePtr current_iter_pos) const {
-    if (node_value > *current_iter_pos) {
+    if (node_value > current_iter_pos->getValue()) {
         return current_iter_pos->getRight();
     }
     return current_iter_pos->getLeft();
@@ -227,7 +230,7 @@ unsigned int Tree<Element>::removeAll(ElementPredicate func) {
     unsigned int removed = 0;
     NodePtr imaginary_root(new Node(nullptr, root));
     traverseWithParent(imaginary_root, [&](NodePtr& p, NodePtr& c) {
-        if ( func(*c) ) {
+        if ( func(c->getValue()) ) {
             removeNode(c, p);
             removed++;
         }
@@ -241,12 +244,12 @@ void Tree<Element>::traverseWithParent(NodePtr& iter,
                                        std::function<void(NodePtr&, NodePtr&)> func) {
     if ( iter ) {
         if ( iter->getLeft() ) {
-            func(iter, iter->getLeft());
             traverseWithParent(iter->getLeft(), func);
+            func(iter, iter->getLeft());
         }
         if ( iter->getRight() ) {
-            func(iter, iter->getRight());
             traverseWithParent(iter->getRight(), func);
+            func(iter, iter->getRight());
         }
     }
 }
@@ -260,16 +263,27 @@ unsigned int Tree<Element>::removeAll(const Element &el_to_remove) {
 
 template<typename Element>
 unsigned int Tree<Element>::remove(const Element &el, unsigned int count) {
-
-
-    return false;
+    try {
+        unsigned int removed = 0;
+        return removeAll([&](const Element &test_el) -> bool {
+            if ( removed == count )
+                throw removed;
+            if ( test_el == el ) {
+                removed++;
+                return true;
+            }
+            return false;
+        });
+    } catch (unsigned int i) {
+        return i;
+    }
 }
 
 template<typename Element>
-int Tree<Element>::countElements(const Element &el) const {
-    int i = 0;
+unsigned int Tree<Element>::countElements(ElementPredicate test_func) const {
+    unsigned int i = 0;
     inOrderNodesTraverse([&](const NodePtr &node) {
-        if (*node == el) {
+        if ( test_func(node->getValue()) ) {
             i++;
         }
     });
@@ -277,12 +291,21 @@ int Tree<Element>::countElements(const Element &el) const {
 }
 
 template<typename Element>
+unsigned int Tree<Element>::countElements(const Element &el) const {
+    return countElements([&](const Element& test_el) {
+        return test_el == el;
+    });
+}
+
+template<typename Element>
 Tree<Element> Tree<Element>::makeElementsSubtree(ElementPredicate filterFunc) const {
     Tree<Element> new_tree;
     preLeftNodesTraverse([&](const NodePtr &node) {
-        new_tree.insert(*node);
+        if ( filterFunc(node->getValue()) ) {
+            new_tree.insert(node->getValue());
+        }
     });
-    return new_tree;
+    return std::move(new_tree);
 }
 
 template<typename Element>
@@ -300,28 +323,28 @@ Tree<Element> Tree<Element>::getSubtreeFromElement(ElementPredicate func) const 
 template<typename Element>
 void Tree<Element>::preLeftTraverse(ElementsTraverseFunc func, ElementPredicate stopCondition) const {
     preLeftNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
 template<typename Element>
 void Tree<Element>::postLeftTraverse(ElementsTraverseFunc func, ElementPredicate stopCondition) const {
     postLeftNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
 template<typename Element>
 void Tree<Element>::preRightTraverse(ElementsTraverseFunc func, ElementPredicate stopCondition) const {
     preRightNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
 template<typename Element>
 void Tree<Element>::postRightTraverse(ElementsTraverseFunc func, ElementPredicate stopCondition) const {
     postRightNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
@@ -355,7 +378,7 @@ void Tree<Element>::preLeftTraverseInner(NodePtr currentNode,
                                          ConditionWrapper& stopCondition) const {
     if (currentNode != nullptr) {
         func(currentNode);
-        if ( !stopCondition(*currentNode) ) {
+        if ( !stopCondition(currentNode->getValue()) ) {
             preLeftTraverseInner(currentNode->getLeft(), func, stopCondition);
             preLeftTraverseInner(currentNode->getRight(), func, stopCondition);
         }
@@ -370,7 +393,7 @@ void Tree<Element>::postLeftTraverseInner(NodePtr currentNode,
         if ( !stopCondition.isAlreadyStopped() ) {
             postLeftTraverseInner(currentNode->getLeft(), func, stopCondition);
             postLeftTraverseInner(currentNode->getRight(), func, stopCondition);
-            stopCondition(*currentNode);
+            stopCondition(currentNode->getValue());
         }
         func(currentNode);
     }
@@ -382,7 +405,7 @@ void Tree<Element>::preRightTraverseInner(NodePtr currentNode,
                                           ConditionWrapper& stopCondition) const {
     if (currentNode != nullptr) {
         func(currentNode);
-        if ( !stopCondition(*currentNode) ) {
+        if ( !stopCondition(currentNode->getValue()) ) {
             preRightTraverseInner(currentNode->getRight(), func, stopCondition);
             preRightTraverseInner(currentNode->getLeft(), func, stopCondition);
         }
@@ -397,7 +420,7 @@ void Tree<Element>::postRightTraverseInner(NodePtr currentNode,
         if ( !stopCondition.isAlreadyStopped() ) {
             postRightTraverseInner(currentNode->getRight(), func, stopCondition);
             postRightTraverseInner(currentNode->getLeft(), func, stopCondition);
-            stopCondition(*currentNode);
+            stopCondition(currentNode->getValue());
         }
         func(currentNode);
     }
@@ -409,7 +432,7 @@ void Tree<Element>::inOrderTraverse(
         ElementPredicate stopCondition
 ) const {
     inOrderNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
@@ -419,7 +442,7 @@ void Tree<Element>::inOppositeOrderTraverse(
         ElementPredicate stopCondition
 ) const {
     inOppositeOrderNodesTraverse([&](NodePtr &node) {
-        func(*node);
+        func(node->getValue());
     }, stopCondition);
 }
 
@@ -451,8 +474,8 @@ void Tree<Element>::inOrderTraverseInner(
         if ( !stopCondition.isAlreadyStopped() ) {
             inOrderTraverseInner(currentNode->getLeft(), func, stopCondition);
         }
-        func(currentNode);
-        if ( !stopCondition(*currentNode) ) {
+        if ( !stopCondition(currentNode->getValue()) ) {
+            func(currentNode);
             inOrderTraverseInner(currentNode->getRight(), func, stopCondition);
         }
     }
@@ -465,11 +488,11 @@ void Tree<Element>::inOppositeOrderTraverseInner(
         ConditionWrapper& stopCondition
 ) const {
     if (currentNode != nullptr) {
-        if ( !stopCondition.isAlreadyStopped() ) {
+        if ( !stopCondition(currentNode->getValue()) ) {
             inOppositeOrderTraverseInner(currentNode->getRight(), func, stopCondition);
         }
-        func(currentNode);
-        if ( !stopCondition(*currentNode) ) {
+        if ( !stopCondition.isAlreadyStopped() ) {
+            func(currentNode);
             inOppositeOrderTraverseInner(currentNode->getLeft(), func, stopCondition);
         }
     }
@@ -481,13 +504,32 @@ void Tree<Element>::removeNode(NodePtr node_to_remove, NodePtr parent_node) {
         removeRoot();
     }
     if ( node_to_remove == parent_node->getRight()) {
+        removeRightNode(node_to_remove, parent_node);
+    } else {
+        removeLeftNode(node_to_remove, parent_node);
+    }
+}
+
+template<typename Element>
+void Tree<Element>::removeRightNode(NodePtr node_to_remove, NodePtr parent_node) {
+    if ( node_to_remove->getRight() != nullptr ) {
         *parent_node >> node_to_remove->getRight();
         insertNode(parent_node->getRight(), node_to_remove->getLeft());
     } else {
-        *parent_node << node_to_remove->getLeft();
-        insertNode(parent_node->getLeft(), node_to_remove->getLeft());
+        *parent_node >> node_to_remove->getLeft();
     }
 }
+
+template<typename Element>
+void Tree<Element>::removeLeftNode(NodePtr node_to_remove, NodePtr parent_node) {
+    if ( node_to_remove->getLeft() != nullptr ) {
+        *parent_node << node_to_remove->getLeft();
+        insertNode(parent_node->getLeft(), node_to_remove->getRight());
+    } else {
+        *parent_node << node_to_remove->getRight();
+    }
+}
+
 
 template<typename Element>
 void Tree<Element>::removeRoot() {
